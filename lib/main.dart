@@ -1,10 +1,10 @@
 import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
+import 'flutter_vision.dart';
 
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'package:flutter_vision/flutter_vision.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 
 const int ourPort = 8888;
@@ -68,7 +68,9 @@ enum RobotStatus {
 class _MyHomePageState extends State<MyHomePage> {
   late CameraController controller;
   final Queue<String> _requests = Queue();
-  late CameraImagePainter _livePicture;
+  //late GroundlineCounter _livePicture;
+  //late CameraImagePainter _livePicture;
+  late KMeansGroundlineTrainer _livePicture;
   String _ipAddr = "Awaiting IP Address...";
   String _incoming = "Setting up server...";
   RobotStatus _robotStatus = RobotStatus.notStarted;
@@ -77,15 +79,24 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
-    _livePicture = CameraImagePainter(makeGroundlineSampleOverlay);
-    controller = CameraController(_cameras[0], ResolutionPreset.medium);
+    //_livePicture = GroundlineCounter();
+    //_livePicture = CameraImagePainter(makeGroundlineKmeansFilter);
+    _livePicture = KMeansGroundlineTrainer();
+    controller = CameraController(_cameras[0], ResolutionPreset.low);
     controller.initialize().then((_) {
       if (!mounted) {
         return;
       }
       controller.startImageStream((image) {
         setState(() {
-          _livePicture.setImage(image).whenComplete(() {});
+          if (_livePicture.ready()) {
+            print("Got an image...");
+            _livePicture.setImage(image).whenComplete(() {
+              print("Processed image.");
+            });
+          } else {
+            print("Dropped image.");
+          }
         });
       });
       setState(() {});
@@ -106,7 +117,7 @@ class _MyHomePageState extends State<MyHomePage> {
     _findIPAddress();
   }
 
-  Widget makeCmdButton(String label, void Function() cmd, Color color) {
+  Widget makeCmdButton(String label, Color color, void Function() cmd) {
     return SizedBox(
         width: 100,
         height: 100,
@@ -184,7 +195,7 @@ class _MyHomePageState extends State<MyHomePage> {
             appBar: AppBar(
                 title: const Text("This is a title")),
             body: Center(
-                child: Column(
+                child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
                       CustomPaint(painter: _livePicture),
@@ -195,6 +206,8 @@ class _MyHomePageState extends State<MyHomePage> {
                           Text(_ipAddr),
                           Text("Grabbed: ${_livePicture.frameCount()} (${_livePicture.width()} x ${_livePicture.height()}) FPS: ${_livePicture.fps().toStringAsFixed(2)}"),
                           Text(_incoming),
+                          _trainKmeansButton(),
+                          //Text("# colors: ${_livePicture.colorCount}")
                         ],
                       ),
                     ]
@@ -204,9 +217,15 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  Widget _trainKmeansButton() {
+    return makeCmdButton("Train k-means", Colors.green, () {
+      _livePicture.startTraining = true;
+    });
+  }
+
   Widget _startStopButton() {
     if (_robotStatus == RobotStatus.notStarted) {
-      return makeCmdButton("Start", () {
+      return makeCmdButton("Start", Colors.purple, () {
         api.resetPositionEstimate().then((value) {
           setState(() {
             _robotStatus = RobotStatus.started;
@@ -214,9 +233,9 @@ class _MyHomePageState extends State<MyHomePage> {
           _requests.addLast('Start');
           print("Sending Start");
         });
-      }, Colors.purple);
+      });
     } else if (_robotStatus == RobotStatus.started) {
-      return makeCmdButton("Stop", () {
+      return makeCmdButton("Stop", Colors.red, () {
         api.resetPositionEstimate().then((value) {
           setState(() {
             _robotStatus = RobotStatus.notStarted;
@@ -224,9 +243,35 @@ class _MyHomePageState extends State<MyHomePage> {
           _requests.addLast('Stop');
           print("Sending Stop");
         });
-      }, Colors.red);
+      });
     } else {
       return const Text("Robot stopped");
+    }
+  }
+}
+
+class GroundlineCounter extends CameraImagePainter {
+  int colorCount = 0;
+  GroundlineCounter() : super(makeGroundlineSampleOverlay);
+  
+  @override
+  Future<void> setImage(CameraImage img) async {
+    super.setImage(img);
+    colorCount = await api.colorCount(img: from(img));
+  }
+}
+
+class KMeansGroundlineTrainer extends CameraImagePainter {
+  KMeansGroundlineTrainer() : super(makeGroundlineKmeansFilter);
+  bool startTraining = false;
+
+  @override
+  Future<void> setImage(CameraImage img) async {
+    super.setImage(img);
+    if (startTraining) {
+      await api.startKmeansTraining(img: from(img));
+      startTraining = false;
+      resetFps();
     }
   }
 }

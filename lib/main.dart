@@ -1,6 +1,8 @@
 import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:groundline/robot.dart';
+
 import 'flutter_vision.dart';
 
 import 'package:flutter/material.dart';
@@ -38,103 +40,74 @@ class MyApp extends StatelessWidget {
         // is not restarted.
         primarySwatch: Colors.blue,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const SelectorPage(title: 'Flutter Demo Home Page'),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
+class SelectorPage extends StatefulWidget {
+  const SelectorPage({super.key, required this.title});
 
   final String title;
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<SelectorPage> createState() => SelectorPageState();
 }
 
-enum RobotStatus {
-  notStarted, started, stopped;
+abstract class VisionRunner {
+  Widget display(SelectorPageState selector);
+  CameraImagePainter livePicture();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class SelectorPageState extends State<SelectorPage> {
   late CameraController controller;
   final Queue<String> _requests = Queue();
-  //late GroundlineCounter _livePicture;
-  //late CameraImagePainter _livePicture;
-  late KMeansGroundlineTrainer _livePicture;
-  String _ipAddr = "Awaiting IP Address...";
-  String _incoming = "Setting up server...";
+  VisionRunner? running;
+
+  String ipAddr = "Awaiting IP Address...";
+  String incoming = "Setting up server...";
   RobotStatus _robotStatus = RobotStatus.notStarted;
   RobotState _robotState = RobotState(left: WheelAction.stop, right: WheelAction.stop);
+
+  Widget startStopButton() {
+    if (_robotStatus == RobotStatus.notStarted) {
+      return makeCmdButton("Start", Colors.purple, () {
+        api.resetPositionEstimate().then((value) {
+          setState(() {
+            _robotStatus = RobotStatus.started;
+          });
+          _requests.addLast('Start');
+          print("Sending Start");
+        });
+      });
+    } else if (_robotStatus == RobotStatus.started) {
+      return makeCmdButton("Stop", Colors.red, () {
+        api.resetPositionEstimate().then((value) {
+          setState(() {
+            _robotStatus = RobotStatus.notStarted;
+          });
+          _requests.addLast('Stop');
+          print("Sending Stop");
+        });
+      });
+    } else {
+      return const Text("Robot stopped");
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-    //_livePicture = GroundlineCounter();
-    //_livePicture = CameraImagePainter(makeGroundlineKmeansFilter);
-    _livePicture = KMeansGroundlineTrainer();
     controller = CameraController(_cameras[0], ResolutionPreset.low);
-    controller.initialize().then((_) {
-      if (!mounted) {
-        return;
-      }
-      controller.startImageStream((image) {
-        setState(() {
-          if (_livePicture.ready()) {
-            print("Got an image...");
-            _livePicture.setImage(image).whenComplete(() {
-              print("Processed image.");
-            });
-          } else {
-            print("Dropped image.");
-          }
-        });
-      });
-      setState(() {});
-    }).catchError((Object e) {
-      if (e is CameraException) {
-        switch (e.code) {
-          case 'CameraAccessDenied':
-            print('User denied camera access.');
-            break;
-          default:
-            print('Handle other errors.');
-            break;
-        }
-      }
-    });
-
     _setupServer();
     _findIPAddress();
-  }
-
-  Widget makeCmdButton(String label, Color color, void Function() cmd) {
-    return SizedBox(
-        width: 100,
-        height: 100,
-        child: ElevatedButton(
-            onPressed: cmd,
-            style: ElevatedButton.styleFrom(
-                backgroundColor: color,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(20))),
-            child: Text(label)));
   }
 
   Future<void> _findIPAddress() async {
     // Thank you https://stackoverflow.com/questions/52411168/how-to-get-device-ip-in-dart-flutter
     String? ip = await NetworkInfo().getWifiIP();
     setState(() {
-      _ipAddr = "My IP: ${ip!}";
+      ipAddr = "My IP: ${ip!}";
     });
   }
 
@@ -143,7 +116,7 @@ class _MyHomePageState extends State<MyHomePage> {
       ServerSocket server = await ServerSocket.bind(InternetAddress.anyIPv4, ourPort);
       server.listen(_listenToSocket); // StreamSubscription<Socket>
       setState(() {
-        _incoming = "Server ready";
+        incoming = "Server ready";
       });
     } on SocketException catch (e) {
       print("ServerSocket setup error: $e");
@@ -175,7 +148,7 @@ class _MyHomePageState extends State<MyHomePage> {
     SensorData data = await api.parseSensorData(incomingData: incomingData);
     _robotState = RobotState.decode(data);
     setState(() {
-      _incoming = processed;
+      incoming = processed;
     });
   }
 
@@ -187,91 +160,87 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    if (!controller.value.isInitialized) {
-      return Container();
+    if (running == null) {
+      return MaterialApp(
+          home: Scaffold(
+              appBar: AppBar(
+                  title: const Text("This is a title")),
+              body: Center(
+                  child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: <Widget>[
+                        selectorButton(
+                            "Image", Colors.blue, () => SimpleImageRunner()),
+                        selectorButton(
+                            "K-Means", Colors.green, () => KMeansImageRunner()),
+                      ]
+                  )
+              )
+          )
+      );
+    } else {
+      return running!.display(this);
     }
-    return MaterialApp(
-        home: Scaffold(
-            appBar: AppBar(
-                title: const Text("This is a title")),
-            body: Center(
-                child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: <Widget>[
-                      CustomPaint(painter: _livePicture),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: <Widget>[
-                          _startStopButton(),
-                          Text(_ipAddr),
-                          Text("Grabbed: ${_livePicture.frameCount()} (${_livePicture.width()} x ${_livePicture.height()}) FPS: ${_livePicture.fps().toStringAsFixed(2)}"),
-                          Text(_incoming),
-                          _trainKmeansButton(),
-                          //Text("# colors: ${_livePicture.colorCount}")
-                        ],
-                      ),
-                    ]
-                )
-            )
-        )
-    );
   }
 
-  Widget _trainKmeansButton() {
-    return makeCmdButton("Train k-means", Colors.green, () {
-      _livePicture.startTraining = true;
+  Widget selectorButton(String label, Color color, VisionRunner Function() runner) {
+    return makeCmdButton(label, color, () {
+      running = runner();
+      controller.initialize().then((_) {
+        if (!mounted) {
+          return;
+        }
+        controller.startImageStream((image) {
+          setState(() {
+            if (running != null) {
+              if (running!.livePicture().ready()) {
+                print("Got an image...");
+                running!.livePicture().setImage(image).whenComplete(() {
+                  print("Processed image.");
+                });
+              } else {
+                print("Dropped image.");
+              }
+            }
+          });
+        });
+        setState(() {});
+      }).catchError((Object e) {
+        if (e is CameraException) {
+          switch (e.code) {
+            case 'CameraAccessDenied':
+              print('User denied camera access.');
+              break;
+            default:
+              print('Handle other errors.');
+              break;
+          }
+        }
+      });
     });
   }
 
-  Widget _startStopButton() {
-    if (_robotStatus == RobotStatus.notStarted) {
-      return makeCmdButton("Start", Colors.purple, () {
-        api.resetPositionEstimate().then((value) {
-          setState(() {
-            _robotStatus = RobotStatus.started;
-          });
-          _requests.addLast('Start');
-          print("Sending Start");
-        });
-      });
-    } else if (_robotStatus == RobotStatus.started) {
-      return makeCmdButton("Stop", Colors.red, () {
-        api.resetPositionEstimate().then((value) {
-          setState(() {
-            _robotStatus = RobotStatus.notStarted;
-          });
-          _requests.addLast('Stop');
-          print("Sending Stop");
-        });
-      });
-    } else {
-      return const Text("Robot stopped");
-    }
+  Widget returnToStartButton() {
+    return makeCmdButton("Return to start", Colors.red, () {
+      controller.stopImageStream();
+      running = null;
+    });
   }
 }
 
-class GroundlineCounter extends CameraImagePainter {
-  int colorCount = 0;
-  GroundlineCounter() : super(makeGroundlineSampleOverlay);
-  
-  @override
-  Future<void> setImage(CameraImage img) async {
-    super.setImage(img);
-    colorCount = await api.colorCount(img: from(img));
-  }
+Widget makeCmdButton(String label, Color color, void Function() cmd) {
+  return SizedBox(
+      width: 100,
+      height: 100,
+      child: ElevatedButton(
+          onPressed: cmd,
+          style: ElevatedButton.styleFrom(
+              backgroundColor: color,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20))),
+          child: Text(label)));
 }
 
-class KMeansGroundlineTrainer extends CameraImagePainter {
-  KMeansGroundlineTrainer() : super(makeGroundlineKmeansFilter);
-  bool startTraining = false;
-
-  @override
-  Future<void> setImage(CameraImage img) async {
-    super.setImage(img);
-    if (startTraining) {
-      await api.startKmeansTraining(img: from(img));
-      startTraining = false;
-      resetFps();
-    }
-  }
+enum RobotStatus {
+  notStarted, started, stopped;
 }

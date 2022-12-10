@@ -222,8 +222,10 @@ class SelectorPageState extends State<SelectorPage> {
 
   Widget returnToStartButton() {
     return makeCmdButton("Return to start", Colors.red, () {
-      controller.stopImageStream();
-      running = null;
+      if (running != null) {
+        controller.stopImageStream();
+        running = null;
+      }
     });
   }
 }

@@ -30,7 +30,7 @@ class SimpleImageRunner extends VisionRunner {
                           Text(selector.ipAddr),
                           Text("Grabbed: ${_livePicture.frameCount()} (${_livePicture.width()} x ${_livePicture.height()}) FPS: ${_livePicture.fps().toStringAsFixed(2)}"),
                           Text(selector.incoming),
-                          selector.returnToStartButton(),
+                          //selector.returnToStartButton(),
                         ],
                       ),
                     ]
@@ -68,7 +68,7 @@ class KMeansImageRunner extends VisionRunner {
                           Text("Grabbed: ${_livePicture.frameCount()} (${_livePicture.width()} x ${_livePicture.height()}) FPS: ${_livePicture.fps().toStringAsFixed(2)}"),
                           Text(selector.incoming),
                           _trainKmeansButton(),
-                          selector.returnToStartButton(),
+                          //selector.returnToStartButton(),
                         ],
                       ),
                     ]

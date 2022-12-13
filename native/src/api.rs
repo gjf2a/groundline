@@ -1,6 +1,7 @@
 use std::{cmp::{max, min}, collections::BTreeSet, sync::atomic::{Ordering, AtomicBool, AtomicU64}, time::Instant};
 use flutter_rust_bridge::{ZeroCopyBuffer};
 use correlation_flow::micro_rfft::{COL_DIM, ROW_DIM, MicroFftContext};
+use knn::ClusteredKnn;
 use std::collections::HashMap;
 pub use particle_filter::sonar3bot::{RobotSensorPosition, BOT, MotorData};
 use flutter_rust_bridge::support::lazy_static;
@@ -27,6 +28,7 @@ fn rgb_triple_mean(triples: &Vec<&RgbTriple>) -> RgbTriple {
 lazy_static! {
     static ref POS: Mutex<RobotSensorPosition> = Mutex::new(RobotSensorPosition::new(BOT));
     static ref COLOR_MEANS: Mutex<Option<Kmeans<RgbTriple, f64, fn (&RgbTriple,&RgbTriple)->f64>>> = Mutex::new(None);
+    static ref GROUNDLINE_CLASSIFIER: Mutex<Option<ClusteredKnn<bool, RgbTriple, f64, fn (&RgbTriple,&RgbTriple)->f64, fn (&Vec<&RgbTriple>) -> RgbTriple>>> = Mutex::new(None);
     static ref KMEANS_READY: AtomicBool = AtomicBool::new(false);
     static ref TRAINING_TIME: AtomicU64 = AtomicU64::new(0);
 }
@@ -191,7 +193,7 @@ pub fn color_clusterer(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
     }
 }
  
-pub fn groundline_k_means(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
+pub fn groundline_overlay_k_means(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
     if kmeans_ready() {
         ZeroCopyBuffer(cluster_colored(img))
     } else {
@@ -199,7 +201,13 @@ pub fn groundline_k_means(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
     }
 }
 
-//fn extract_pixels_from(colors: &Vec<RGBColor>, width: i64, ul_corner: (usize, usize), dimensions: (usize, usize)) -> 
+pub fn groundline_filter_k_means(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
+    if kmeans_ready() {
+        ZeroCopyBuffer(cluster_colored(img))
+    } else {
+        groundline_sample_overlay(img)
+    }
+}
 
 fn simple_yuv_rgb(img: &ImageData) -> Vec<RgbTriple> {
     let mut result = vec![];

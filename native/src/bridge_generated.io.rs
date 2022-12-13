@@ -42,8 +42,8 @@ pub extern "C" fn wire_color_clusterer(port_: i64, img: *mut wire_ImageData) {
 }
 
 #[no_mangle]
-pub extern "C" fn wire_groundline_k_means(port_: i64, img: *mut wire_ImageData) {
-    wire_groundline_k_means_impl(port_, img)
+pub extern "C" fn wire_groundline_overlay_k_means(port_: i64, img: *mut wire_ImageData) {
+    wire_groundline_overlay_k_means_impl(port_, img)
 }
 
 #[no_mangle]
@@ -87,8 +87,6 @@ pub extern "C" fn new_uint_8_list_0(len: i32) -> *mut wire_uint_8_list {
     };
     support::new_leak_box_ptr(ans)
 }
-
-// Section: related functions
 
 // Section: impl Wire2Api
 

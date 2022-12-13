@@ -85,8 +85,6 @@ class KMeansImageRunner extends VisionRunner {
   }
 }
 
-
-
 class GroundlineCounter extends CameraImagePainter {
   int colorCount = 0;
   GroundlineCounter() : super(makeGroundlineSampleOverlay);

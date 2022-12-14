@@ -25,10 +25,15 @@ fn rgb_triple_mean(triples: &Vec<&RgbTriple>) -> RgbTriple {
     (clamp2u8(total.0 / count), clamp2u8(total.1 / count), clamp2u8(total.2 /count))
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, Ord, PartialOrd)]
+enum HallwayPixel {
+    Ground, Elevated
+}
+
 lazy_static! {
     static ref POS: Mutex<RobotSensorPosition> = Mutex::new(RobotSensorPosition::new(BOT));
     static ref COLOR_MEANS: Mutex<Option<Kmeans<RgbTriple, f64, fn (&RgbTriple,&RgbTriple)->f64>>> = Mutex::new(None);
-    static ref GROUNDLINE_CLASSIFIER: Mutex<Option<ClusteredKnn<bool, RgbTriple, f64, fn (&RgbTriple,&RgbTriple)->f64, fn (&Vec<&RgbTriple>) -> RgbTriple>>> = Mutex::new(None);
+    static ref GROUNDLINE_CLASSIFIER: Mutex<Option<ClusteredKnn<HallwayPixel, RgbTriple, f64, fn (&RgbTriple,&RgbTriple)->f64, fn (&Vec<&RgbTriple>) -> RgbTriple>>> = Mutex::new(None);
     static ref KMEANS_READY: AtomicBool = AtomicBool::new(false);
     static ref TRAINING_TIME: AtomicU64 = AtomicU64::new(0);
 }
@@ -113,6 +118,16 @@ impl Rect {
             plot(image, self.ul_corner.0 + self.dimensions.0 - 1, y, width, color);
         }
     }
+
+    fn indices_in(&self, width: i64) -> Vec<usize> {
+        let mut result = vec![];
+        for x in self.ul_corner.0..self.ul_corner.0 + self.dimensions.0 {
+            for y in self.ul_corner.1..self.ul_corner.1 + self.dimensions.1 {
+                result.push((y * width + x) as usize);
+            }
+        }
+        result
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -144,6 +159,27 @@ impl GroundlineOverlay {
         self.upper[1].place_overlay(image, self.width, white);
         self.lower.place_overlay(image, self.width, white);    
     }
+
+    fn visit_upper_pixels<V, F:FnMut(&mut V, RgbTriple)>(&self, img: &Vec<RgbTriple>, width: i64, mut visit: F, storage: &mut V) {
+        for rect in self.upper.iter() {
+            for i in rect.indices_in(width) {
+                visit(storage, img[i]);
+            }
+        }
+    }
+
+    fn visit_lower_pixels<V, F:FnMut(&mut V, RgbTriple)>(&self, img: &Vec<RgbTriple>, width: i64, mut visit: F, storage: &mut V) {
+        for i in self.lower.indices_in(width) {
+            visit(storage, img[i]);
+        }
+    }
+
+    fn make_color_training_from(&self, img: &Vec<RgbTriple>, width: i64) -> Vec<(HallwayPixel, RgbTriple)> {
+        let mut result = vec![];
+        self.visit_upper_pixels(img, width, |v, p| v.push((HallwayPixel::Elevated, p)), &mut result);
+        self.visit_lower_pixels(img, width, |v, p| v.push((HallwayPixel::Ground, p)), &mut result);
+        result
+    }
 }
 
 pub fn groundline_sample_overlay(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
@@ -165,8 +201,9 @@ pub fn start_kmeans_training(img: ImageData) {
         *color_means = Some(Kmeans::new(NUM_COLOR_CLUSTERS, &image, Arc::new(rgb_triple_distance), Arc::new(rgb_triple_mean)));
         let mut groundline_classifier = GROUNDLINE_CLASSIFIER.lock().unwrap();
         *groundline_classifier = Some(ClusteredKnn::new(NUM_KNN_REFS, NUM_COLOR_CLUSTERS, Arc::new(rgb_triple_distance), Arc::new(rgb_triple_mean)));
-        // TODO: Create training_examples
-        //groundline_classifier.as_mut().unwrap().train_from_clusters(color_means.as_ref().unwrap(), training_examples);
+        let overlay = GroundlineOverlay::new(&img);
+        let training_examples = overlay.make_color_training_from(&image, img.width);
+        groundline_classifier.as_mut().unwrap().train_from_clusters(color_means.as_ref().unwrap(), &training_examples);
         KMEANS_READY.store(true, Ordering::SeqCst);
         TRAINING_TIME.store(start.elapsed().as_millis() as u64, Ordering::SeqCst);
     });

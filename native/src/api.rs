@@ -155,6 +155,7 @@ pub fn groundline_sample_overlay(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
 
 // 16 clusters yields about 9 frames per second for color filtering on a 176x144 image.
 const NUM_COLOR_CLUSTERS: usize = 16;
+const NUM_KNN_REFS: usize = 3;
 
 pub fn start_kmeans_training(img: ImageData) {
     std::thread::spawn(move || {
@@ -162,6 +163,10 @@ pub fn start_kmeans_training(img: ImageData) {
         let image = simple_yuv_rgb(&img);
         let mut color_means = COLOR_MEANS.lock().unwrap();
         *color_means = Some(Kmeans::new(NUM_COLOR_CLUSTERS, &image, Arc::new(rgb_triple_distance), Arc::new(rgb_triple_mean)));
+        let mut groundline_classifier = GROUNDLINE_CLASSIFIER.lock().unwrap();
+        *groundline_classifier = Some(ClusteredKnn::new(NUM_KNN_REFS, NUM_COLOR_CLUSTERS, Arc::new(rgb_triple_distance), Arc::new(rgb_triple_mean)));
+        // TODO: Create training_examples
+        //groundline_classifier.as_mut().unwrap().train_from_clusters(color_means.as_ref().unwrap(), training_examples);
         KMEANS_READY.store(true, Ordering::SeqCst);
         TRAINING_TIME.store(start.elapsed().as_millis() as u64, Ordering::SeqCst);
     });

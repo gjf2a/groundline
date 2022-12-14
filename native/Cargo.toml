@@ -10,7 +10,7 @@ crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
 #flutter_rust_bridge = "1"
-flutter_rust_bridge = "1.45.0"
+flutter_rust_bridge = "1.51.1"
 correlation_flow = "0.1.4"
 particle_filter = {git = "https://github.com/gjf2a/particle_filter"}
 lazy_static = "1.4.0"

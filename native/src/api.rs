@@ -7,7 +7,7 @@ pub use particle_filter::sonar3bot::{RobotSensorPosition, BOT, MotorData};
 use flutter_rust_bridge::support::lazy_static;
 use std::sync::{Arc,Mutex};
 use kmeans::Kmeans;
-
+use supervised_learning::Classifier;
 
 type RgbTriple = (u8, u8, u8);
 
@@ -227,6 +227,27 @@ fn cluster_colored(img: ImageData) -> Vec<u8> {
     })
 }
 
+fn ground_colored(img: ImageData) -> Vec<u8> {
+    let image = simple_yuv_rgb(&img);
+    GROUNDLINE_CLASSIFIER.lock().unwrap().as_ref().map_or_else(|| {
+        (0..(img.height * img.width * 4)).map(|i| if i % 4 == 0 {u8::MAX} else {0}).collect()
+    }, |knn| {
+        let mut result = vec![];
+        for color in image {
+            let bytes = match knn.classify(&color) {
+                HallwayPixel::Ground => (u8::MAX, 0, 0),
+                HallwayPixel::Elevated => (0, 0, u8::MAX),
+            };
+            
+            result.push(bytes.0);
+            result.push(bytes.1);
+            result.push(bytes.2);
+            result.push(u8::MAX);
+        }
+        result
+    })
+}
+
 pub fn color_clusterer(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
     if kmeans_ready() {
         ZeroCopyBuffer(cluster_colored(img))
@@ -245,7 +266,7 @@ pub fn groundline_overlay_k_means(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
 
 pub fn groundline_filter_k_means(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
     if kmeans_ready() {
-        ZeroCopyBuffer(cluster_colored(img))
+        ZeroCopyBuffer(ground_colored(img))
     } else {
         groundline_sample_overlay(img)
     }

@@ -78,8 +78,13 @@ Future<dartui.Image> makeGroundlineSampleOverlay(CameraImage img) async {
   return makeImageFrom(proc, img.width, img.height);
 }
 
-Future<dartui.Image> makeGroundlineKmeansFilter(CameraImage img) async {
+Future<dartui.Image> makeGroundlineKmeansOverlay(CameraImage img) async {
   Uint8List proc = await api.groundlineOverlayKMeans(img: from(img));
+  return makeImageFrom(proc, img.width, img.height);
+}
+
+Future<dartui.Image> makeGroundlineKmeansFilter(CameraImage img) async {
+  Uint8List proc = await api.groundlineFilterKMeans(img: from(img));
   return makeImageFrom(proc, img.width, img.height);
 }
 

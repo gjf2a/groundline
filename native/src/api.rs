@@ -1,4 +1,4 @@
-use std::{cmp::{max, min}, collections::BTreeSet, sync::atomic::{Ordering, AtomicBool, AtomicU64}, time::Instant};
+use std::{collections::BTreeSet, sync::atomic::{Ordering, AtomicBool, AtomicU64}, time::Instant};
 use flutter_rust_bridge::{ZeroCopyBuffer};
 use correlation_flow::micro_rfft::{COL_DIM, ROW_DIM, MicroFftContext};
 use knn::ClusteredKnn;
@@ -9,26 +9,7 @@ use std::sync::{Arc,Mutex};
 use kmeans::Kmeans;
 use supervised_learning::Classifier;
 
-type RgbTriple = (u8, u8, u8);
-
-fn rgb_triple_distance(rgb3a: &RgbTriple, rgb3b: &RgbTriple) -> f64 {
-    (rgb3a.0 as f64 - rgb3b.0 as f64).powf(2.0) + (rgb3a.1 as f64 - rgb3b.1 as f64).powf(2.0) + (rgb3a.2 as f64 - rgb3b.2 as f64).powf(2.0)
-}
-
-fn clamp2u8(value: u64) -> u8 {
-    max(0, min(value, u8::MAX as u64)) as u8
-}
-
-fn rgb_triple_mean(triples: &Vec<&RgbTriple>) -> RgbTriple {
-    let total = triples.iter().fold((0, 0, 0), |s, t| (s.0 + t.0 as u64, s.1 + t.1 as u64, s.2 + t.2 as u64));
-    let count = triples.len() as u64;
-    (clamp2u8(total.0 / count), clamp2u8(total.1 / count), clamp2u8(total.2 /count))
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash, Ord, PartialOrd)]
-enum HallwayPixel {
-    Ground, Elevated
-}
+use crate::{colors::{RgbTriple, rgb_triple_distance, rgb_triple_mean}, groundline::{GroundlineOverlay, HallwayPixel}, image::{inner_yuv_rgba, simple_yuv_rgb}};
 
 lazy_static! {
     static ref POS: Mutex<RobotSensorPosition> = Mutex::new(RobotSensorPosition::new(BOT));
@@ -97,91 +78,6 @@ pub fn color_count(img: ImageData) -> i64 {
     distinct_colors.len() as i64
 }    
 
-const UPPER_SAMPLE_HEIGHT: f64 = 0.25;
-const UPPER_SAMPLE_WIDTH: f64 = 0.25;
-const LOWER_SAMPLE_WIDTH: f64 = 0.3;
-const LOWER_SAMPLE_HEIGHT: f64 = 0.25;
-
-#[derive(Copy, Clone, Debug)]
-struct Rect {
-    ul_corner: (i64, i64), dimensions: (i64, i64),
-}
-
-impl Rect {
-    fn place_overlay(&self, image: &mut Vec<u8>, width: i64, color: RgbTriple) {
-        for x in self.ul_corner.0..self.ul_corner.0 + self.dimensions.0 {
-            plot(image, x, self.ul_corner.1, width, color);
-            plot(image, x, self.ul_corner.1 + self.dimensions.1 - 1, width, color);
-        }
-        for y in self.ul_corner.1..self.ul_corner.1 + self.dimensions.1 {
-            plot(image, self.ul_corner.0, y, width, color);
-            plot(image, self.ul_corner.0 + self.dimensions.0 - 1, y, width, color);
-        }
-    }
-
-    fn indices_in(&self, width: i64) -> Vec<usize> {
-        let mut result = vec![];
-        for x in self.ul_corner.0..self.ul_corner.0 + self.dimensions.0 {
-            for y in self.ul_corner.1..self.ul_corner.1 + self.dimensions.1 {
-                result.push((y * width + x) as usize);
-            }
-        }
-        result
-    }
-}
-
-#[derive(Copy, Clone, Debug)]
-struct GroundlineOverlay {
-    upper: [Rect; 2],
-    lower: Rect,
-    width: i64, 
-}
-
-impl GroundlineOverlay {
-    fn new(img: &ImageData) -> Self {
-        let upper_max_y = (img.height as f64 * UPPER_SAMPLE_HEIGHT) as i64;
-        let upper_left_x_end = (img.width as f64 * UPPER_SAMPLE_WIDTH) as i64;
-        let upper_right_x_start = img.width - upper_left_x_end;
-        let lower_x_start = (img.width as f64 * (0.5 - LOWER_SAMPLE_WIDTH / 2.0)) as i64;
-        let lower_width = (img.width as f64 * LOWER_SAMPLE_WIDTH) as i64;
-        let lower_height = (img.height as f64 * LOWER_SAMPLE_HEIGHT) as i64;
-        let lower_y_start = (img.height as f64 * (1.0 - LOWER_SAMPLE_HEIGHT)) as i64;
-        Self {
-            upper: [Rect {ul_corner: (0, 0), dimensions: (upper_left_x_end, upper_max_y)}, Rect {ul_corner: (upper_right_x_start, 0), dimensions: (upper_left_x_end, upper_max_y)}],
-            lower: Rect {ul_corner: (lower_x_start, lower_y_start), dimensions: (lower_width, lower_height)},
-            width: img.width,
-        }
-    }
-
-    fn place_overlay(&self, image: &mut Vec<u8>) {
-        let white = (255, 255, 255);
-        self.upper[0].place_overlay(image, self.width, white);
-        self.upper[1].place_overlay(image, self.width, white);
-        self.lower.place_overlay(image, self.width, white);    
-    }
-
-    fn visit_upper_pixels<V, F:FnMut(&mut V, RgbTriple)>(&self, img: &Vec<RgbTriple>, width: i64, mut visit: F, storage: &mut V) {
-        for rect in self.upper.iter() {
-            for i in rect.indices_in(width) {
-                visit(storage, img[i]);
-            }
-        }
-    }
-
-    fn visit_lower_pixels<V, F:FnMut(&mut V, RgbTriple)>(&self, img: &Vec<RgbTriple>, width: i64, mut visit: F, storage: &mut V) {
-        for i in self.lower.indices_in(width) {
-            visit(storage, img[i]);
-        }
-    }
-
-    fn make_color_training_from(&self, img: &Vec<RgbTriple>, width: i64) -> Vec<(HallwayPixel, RgbTriple)> {
-        let mut result = vec![];
-        self.visit_upper_pixels(img, width, |v, p| v.push((HallwayPixel::Elevated, p)), &mut result);
-        self.visit_lower_pixels(img, width, |v, p| v.push((HallwayPixel::Ground, p)), &mut result);
-        result
-    }
-}
-
 pub fn groundline_sample_overlay(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
     let overlay = GroundlineOverlay::new(&img);
     let mut image = inner_yuv_rgba(&img);
@@ -231,21 +127,23 @@ fn ground_colored(img: ImageData) -> Vec<u8> {
     let image = simple_yuv_rgb(&img);
     GROUNDLINE_CLASSIFIER.lock().unwrap().as_ref().map_or_else(|| {
         (0..(img.height * img.width * 4)).map(|i| if i % 4 == 0 {u8::MAX} else {0}).collect()
-    }, |knn| {
-        let mut result = vec![];
-        for color in image {
-            let bytes = match knn.classify(&color) {
-                HallwayPixel::Ground => (u8::MAX, 0, 0),
-                HallwayPixel::Elevated => (0, 0, u8::MAX),
-            };
-            
-            result.push(bytes.0);
-            result.push(bytes.1);
-            result.push(bytes.2);
-            result.push(u8::MAX);
-        }
-        result
-    })
+    }, |knn| groundline_pixels(&image, knn))
+}
+
+fn groundline_pixels(image: &Vec<RgbTriple>, knn: &ClusteredKnn<HallwayPixel, RgbTriple, f64, fn (&RgbTriple,&RgbTriple)->f64, fn (&Vec<&RgbTriple>) -> RgbTriple>) -> Vec<u8> {
+    let mut result = vec![];
+    for color in image {
+        let bytes = match knn.classify(&color) {
+            HallwayPixel::Ground => (u8::MAX, 0, 0),
+            HallwayPixel::Elevated => (0, 0, u8::MAX),
+        };
+        
+        result.push(bytes.0);
+        result.push(bytes.1);
+        result.push(bytes.2);
+        result.push(u8::MAX);
+    }
+    result
 }
 
 pub fn color_clusterer(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
@@ -270,66 +168,6 @@ pub fn groundline_filter_k_means(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
     } else {
         groundline_sample_overlay(img)
     }
-}
-
-fn simple_yuv_rgb(img: &ImageData) -> Vec<RgbTriple> {
-    let mut result = vec![];
-    generic_yuv_rgba(|rgb| { result.push(rgb)}, img);
-    result
-}
-
-fn point2index(x: i64, y: i64, width: i64) -> usize {
-    ((y * width + x) * 4) as usize
-}
-
-/// Translated and adapted from: https://stackoverflow.com/a/57604820/906268
-fn inner_yuv_rgba(img: &ImageData) -> Vec<u8> {
-    let mut result = Vec::new();
-    generic_yuv_rgba(|(r, g, b)| {
-        result.push(r);
-        result.push(g);
-        result.push(b);
-        result.push(u8::MAX);
-    }, img);
-    result
-}
-
-fn generic_yuv_rgba<F: FnMut((u8, u8, u8))>(mut add: F, img: &ImageData) {
-    for y in 0..img.height {
-        for x in 0..img.width {
-            let uv_index = (img.uv_pixel_stride * (x/2) + img.uv_row_stride * (y/2)) as usize;
-            let index = (y * img.width + x) as usize;
-            let rgb = yuv2rgb(img.ys[index] as i64, img.us[uv_index] as i64, img.vs[uv_index] as i64);
-            add(rgb);
-        }
-    }
-}
-
-fn yuv2rgb(yp: i64, up: i64, vp: i64) -> (u8, u8, u8) {
-    (clamp_u8(yp + vp * 1436 / 1024 - 179), 
-     clamp_u8(yp - up * 46549 / 131072 + 44 - vp * 93604 / 131072 + 91), 
-     clamp_u8(yp + up * 1814 / 1024 - 227))
-}
-
-fn plot(image: &mut Vec<u8>, x: i64, y: i64, width: i64, color: RgbTriple) {
-    let index = point2index(x, y, width);
-    if index >= image.len() {
-        panic!("Out of bounds at {x}, {y}; width is {width}");
-    }
-    image[index] = color.0;
-    image[index + 1] = color.1;
-    image[index + 2] = color.2;
-    image[index + 3] = 255;
-}
-
-fn overlay_points_on(image: &mut Vec<u8>, width: i64, points: &Vec<(i64,i64)>, color: RgbTriple) {
-    for (x, y) in points.iter() {
-        plot(image, *x, *y, width, color);
-    }
-}
-
-fn clamp_u8(value: i64) -> u8 {
-    min(max(value, 0), u8::MAX as i64) as u8
 }
 
 #[derive(Copy, Clone)]

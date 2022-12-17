@@ -88,6 +88,11 @@ Future<dartui.Image> makeGroundlineKmeansFilter(CameraImage img) async {
   return makeImageFrom(proc, img.width, img.height);
 }
 
+Future<dartui.Image> makeHsGroundlineKmeansFilter(CameraImage img) async {
+  Uint8List proc = await api.hsGroundlineFilterKMeans(img: from(img));
+  return makeImageFrom(proc, img.width, img.height);
+}
+
 // This is super-clunky. I wonder if there's a better way...
 Future<dartui.Image> makeImageFrom(Uint8List intensities, int width, int height) async {
   dartui.ImmutableBuffer rgba = await dartui.ImmutableBuffer.fromUint8List(intensities);

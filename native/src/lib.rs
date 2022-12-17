@@ -8,6 +8,5 @@
 
 mod api;
 mod bridge_generated;
-mod colors;
 mod groundline;
 mod image;

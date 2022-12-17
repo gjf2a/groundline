@@ -173,6 +173,8 @@ class SelectorPageState extends State<SelectorPage> {
                             "Image", Colors.blue, () => SimpleImageRunner()),
                         selectorButton(
                             "K-Means", Colors.green, () => KMeansImageRunner()),
+                        selectorButton(
+                            "Hue-Saturation K-Means", Colors.orange, () => KMeansHsImageRunner()),
                       ]
                   )
               )

@@ -32,8 +32,13 @@ pub extern "C" fn wire_groundline_sample_overlay(port_: i64, img: *mut wire_Imag
 }
 
 #[no_mangle]
-pub extern "C" fn wire_start_kmeans_training(port_: i64, img: *mut wire_ImageData) {
-    wire_start_kmeans_training_impl(port_, img)
+pub extern "C" fn wire_start_rgb_kmeans_training(port_: i64, img: *mut wire_ImageData) {
+    wire_start_rgb_kmeans_training_impl(port_, img)
+}
+
+#[no_mangle]
+pub extern "C" fn wire_start_hs_kmeans_training(port_: i64, img: *mut wire_ImageData) {
+    wire_start_hs_kmeans_training_impl(port_, img)
 }
 
 #[no_mangle]
@@ -49,6 +54,11 @@ pub extern "C" fn wire_groundline_overlay_k_means(port_: i64, img: *mut wire_Ima
 #[no_mangle]
 pub extern "C" fn wire_groundline_filter_k_means(port_: i64, img: *mut wire_ImageData) {
     wire_groundline_filter_k_means_impl(port_, img)
+}
+
+#[no_mangle]
+pub extern "C" fn wire_hs_groundline_filter_k_means(port_: i64, img: *mut wire_ImageData) {
+    wire_hs_groundline_filter_k_means_impl(port_, img)
 }
 
 #[no_mangle]

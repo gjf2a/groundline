@@ -7,14 +7,15 @@ pub use particle_filter::sonar3bot::{RobotSensorPosition, BOT, MotorData};
 use flutter_rust_bridge::support::lazy_static;
 use std::sync::{Arc,Mutex};
 use kmeans::Kmeans;
-use supervised_learning::Classifier;
 
-use crate::{colors::{RgbTriple, rgb_triple_distance, rgb_triple_mean}, groundline::{GroundlineOverlay, HallwayPixel}, image::{inner_yuv_rgba, simple_yuv_rgb}};
+use crate::{image::{U8ColorTriple, color_triple_distance, color_triple_mean, HueSaturation, hs_values, hs_distance, hs_mean}, groundline::{GroundlineOverlay, HallwayPixel, groundline_pixels}, image::{inner_yuv_rgba, simple_yuv_rgb}};
 
 lazy_static! {
     static ref POS: Mutex<RobotSensorPosition> = Mutex::new(RobotSensorPosition::new(BOT));
-    static ref COLOR_MEANS: Mutex<Option<Kmeans<RgbTriple, f64, fn (&RgbTriple,&RgbTriple)->f64>>> = Mutex::new(None);
-    static ref GROUNDLINE_CLASSIFIER: Mutex<Option<ClusteredKnn<HallwayPixel, RgbTriple, f64, fn (&RgbTriple,&RgbTriple)->f64, fn (&Vec<&RgbTriple>) -> RgbTriple>>> = Mutex::new(None);
+    static ref RGB_MEANS: Mutex<Option<Kmeans<U8ColorTriple, f64, fn (&U8ColorTriple,&U8ColorTriple)->f64>>> = Mutex::new(None);
+    static ref RGB_GROUNDLINE_CLASSIFIER: Mutex<Option<ClusteredKnn<HallwayPixel, U8ColorTriple, f64, fn (&U8ColorTriple,&U8ColorTriple)->f64, fn (&Vec<&U8ColorTriple>) -> U8ColorTriple>>> = Mutex::new(None);
+    static ref HS_MEANS: Mutex<Option<Kmeans<HueSaturation, f64, fn (&HueSaturation,&HueSaturation)->f64>>> = Mutex::new(None);
+    static ref HS_GROUNDLINE_CLASSIFIER: Mutex<Option<ClusteredKnn<HallwayPixel, HueSaturation, f64, fn (&HueSaturation,&HueSaturation)->f64, fn (&Vec<&HueSaturation>) -> HueSaturation>>> = Mutex::new(None);
     static ref KMEANS_READY: AtomicBool = AtomicBool::new(false);
     static ref TRAINING_TIME: AtomicU64 = AtomicU64::new(0);
 }
@@ -89,14 +90,14 @@ pub fn groundline_sample_overlay(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
 const NUM_COLOR_CLUSTERS: usize = 16;
 const NUM_KNN_REFS: usize = 3;
 
-pub fn start_kmeans_training(img: ImageData) {
+pub fn start_rgb_kmeans_training(img: ImageData) {
     std::thread::spawn(move || {
         let start = Instant::now();
         let image = simple_yuv_rgb(&img);
-        let mut color_means = COLOR_MEANS.lock().unwrap();
-        *color_means = Some(Kmeans::new(NUM_COLOR_CLUSTERS, &image, Arc::new(rgb_triple_distance), Arc::new(rgb_triple_mean)));
-        let mut groundline_classifier = GROUNDLINE_CLASSIFIER.lock().unwrap();
-        *groundline_classifier = Some(ClusteredKnn::new(NUM_KNN_REFS, NUM_COLOR_CLUSTERS, Arc::new(rgb_triple_distance), Arc::new(rgb_triple_mean)));
+        let mut color_means = RGB_MEANS.lock().unwrap();
+        *color_means = Some(Kmeans::new(NUM_COLOR_CLUSTERS, &image, Arc::new(color_triple_distance), Arc::new(color_triple_mean)));
+        let mut groundline_classifier = RGB_GROUNDLINE_CLASSIFIER.lock().unwrap();
+        *groundline_classifier = Some(ClusteredKnn::new(NUM_KNN_REFS, NUM_COLOR_CLUSTERS, Arc::new(color_triple_distance), Arc::new(color_triple_mean)));
         let overlay = GroundlineOverlay::new(&img);
         let training_examples = overlay.make_color_training_from(&image, img.width);
         groundline_classifier.as_mut().unwrap().train_from_clusters(color_means.as_ref().unwrap(), &training_examples);
@@ -107,7 +108,7 @@ pub fn start_kmeans_training(img: ImageData) {
 
 fn cluster_colored(img: ImageData) -> Vec<u8> {
     let image = simple_yuv_rgb(&img);
-    COLOR_MEANS.lock().unwrap().as_ref().map_or_else(|| {
+    RGB_MEANS.lock().unwrap().as_ref().map_or_else(|| {
         (0..(img.height * img.width * 4)).map(|i| if i % 4 == 0 {u8::MAX} else {0}).collect()
     }, |kmeans| {
         let mut result = vec![];
@@ -125,25 +126,32 @@ fn cluster_colored(img: ImageData) -> Vec<u8> {
 
 fn ground_colored(img: ImageData) -> Vec<u8> {
     let image = simple_yuv_rgb(&img);
-    GROUNDLINE_CLASSIFIER.lock().unwrap().as_ref().map_or_else(|| {
+    RGB_GROUNDLINE_CLASSIFIER.lock().unwrap().as_ref().map_or_else(|| {
         (0..(img.height * img.width * 4)).map(|i| if i % 4 == 0 {u8::MAX} else {0}).collect()
     }, |knn| groundline_pixels(&image, knn))
 }
 
-fn groundline_pixels(image: &Vec<RgbTriple>, knn: &ClusteredKnn<HallwayPixel, RgbTriple, f64, fn (&RgbTriple,&RgbTriple)->f64, fn (&Vec<&RgbTriple>) -> RgbTriple>) -> Vec<u8> {
-    let mut result = vec![];
-    for color in image {
-        let bytes = match knn.classify(&color) {
-            HallwayPixel::Ground => (u8::MAX, 0, 0),
-            HallwayPixel::Elevated => (0, 0, u8::MAX),
-        };
-        
-        result.push(bytes.0);
-        result.push(bytes.1);
-        result.push(bytes.2);
-        result.push(u8::MAX);
-    }
-    result
+pub fn start_hs_kmeans_training(img: ImageData) {
+    std::thread::spawn(move || {
+        let start = Instant::now();
+        let image = hs_values(&img);
+        let mut color_means = HS_MEANS.lock().unwrap();
+        *color_means = Some(Kmeans::new(NUM_COLOR_CLUSTERS, &image, Arc::new(hs_distance), Arc::new(hs_mean)));
+        let mut groundline_classifier = HS_GROUNDLINE_CLASSIFIER.lock().unwrap();
+        *groundline_classifier = Some(ClusteredKnn::new(NUM_KNN_REFS, NUM_COLOR_CLUSTERS, Arc::new(hs_distance), Arc::new(hs_mean)));
+        let overlay = GroundlineOverlay::new(&img);
+        let training_examples = overlay.make_color_training_from(&image, img.width);
+        groundline_classifier.as_mut().unwrap().train_from_clusters(color_means.as_ref().unwrap(), &training_examples);
+        KMEANS_READY.store(true, Ordering::SeqCst);
+        TRAINING_TIME.store(start.elapsed().as_millis() as u64, Ordering::SeqCst);
+    });
+}
+
+fn hs_ground_colored(img: ImageData) -> Vec<u8> {
+    let image = hs_values(&img);
+    HS_GROUNDLINE_CLASSIFIER.lock().unwrap().as_ref().map_or_else(|| {
+        (0..(img.height * img.width * 4)).map(|i| if i % 4 == 0 {u8::MAX} else {0}).collect()
+    }, |knn| groundline_pixels(&image, knn))
 }
 
 pub fn color_clusterer(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
@@ -165,6 +173,14 @@ pub fn groundline_overlay_k_means(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
 pub fn groundline_filter_k_means(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
     if kmeans_ready() {
         ZeroCopyBuffer(ground_colored(img))
+    } else {
+        groundline_sample_overlay(img)
+    }
+}
+
+pub fn hs_groundline_filter_k_means(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
+    if kmeans_ready() {
+        ZeroCopyBuffer(hs_ground_colored(img))
     } else {
         groundline_sample_overlay(img)
     }

@@ -174,7 +174,7 @@ class SelectorPageState extends State<SelectorPage> {
                         selectorButton(
                             "K-Means", Colors.green, () => KMeansImageRunner()),
                         selectorButton(
-                            "Hue-Saturation K-Means", Colors.orange, () => KMeansHsImageRunner()),
+                            "UV K-Means", Colors.orange, () => KMeansUvImageRunner()),
                       ]
                   )
               )

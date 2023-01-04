@@ -41,6 +41,10 @@ abstract class Native {
 
   FlutterRustBridgeTaskConstMeta get kStartHsKmeansTrainingConstMeta;
 
+  Future<void> startUvKmeansTraining({required ImageData img, dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kStartUvKmeansTrainingConstMeta;
+
   Future<Uint8List> colorClusterer({required ImageData img, dynamic hint});
 
   FlutterRustBridgeTaskConstMeta get kColorClustererConstMeta;
@@ -59,6 +63,11 @@ abstract class Native {
       {required ImageData img, dynamic hint});
 
   FlutterRustBridgeTaskConstMeta get kHsGroundlineFilterKMeansConstMeta;
+
+  Future<Uint8List> uvGroundlineFilterKMeans(
+      {required ImageData img, dynamic hint});
+
+  FlutterRustBridgeTaskConstMeta get kUvGroundlineFilterKMeansConstMeta;
 
   Future<CorrelationFlow> getCorrelationFlow(
       {required Uint8List prevYs,

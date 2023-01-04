@@ -8,7 +8,7 @@ use flutter_rust_bridge::support::lazy_static;
 use std::sync::{Arc,Mutex};
 use kmeans::Kmeans;
 
-use crate::{image::{U8ColorTriple, color_triple_distance, color_triple_mean, HueSaturation, hs_values, hs_distance, hs_mean}, groundline::{GroundlineOverlay, HallwayPixel, groundline_pixels}, image::{inner_yuv_rgba, simple_yuv_rgb}};
+use crate::{image::{U8ColorTriple, color_triple_distance, color_triple_mean, HueSaturation, hs_values, hs_distance, hs_mean, Uv, uv_values, uv_distance, uv_mean}, groundline::{GroundlineOverlay, HallwayPixel, groundline_pixels}, image::{inner_yuv_rgba, simple_yuv_rgb}};
 
 lazy_static! {
     static ref POS: Mutex<RobotSensorPosition> = Mutex::new(RobotSensorPosition::new(BOT));
@@ -16,6 +16,8 @@ lazy_static! {
     static ref RGB_GROUNDLINE_CLASSIFIER: Mutex<Option<ClusteredKnn<HallwayPixel, U8ColorTriple, f64, fn (&U8ColorTriple,&U8ColorTriple)->f64, fn (&Vec<&U8ColorTriple>) -> U8ColorTriple>>> = Mutex::new(None);
     static ref HS_MEANS: Mutex<Option<Kmeans<HueSaturation, f64, fn (&HueSaturation,&HueSaturation)->f64>>> = Mutex::new(None);
     static ref HS_GROUNDLINE_CLASSIFIER: Mutex<Option<ClusteredKnn<HallwayPixel, HueSaturation, f64, fn (&HueSaturation,&HueSaturation)->f64, fn (&Vec<&HueSaturation>) -> HueSaturation>>> = Mutex::new(None);
+    static ref UV_MEANS: Mutex<Option<Kmeans<Uv, f64, fn (&Uv,&Uv)->f64>>> = Mutex::new(None);
+    static ref UV_GROUNDLINE_CLASSIFIER: Mutex<Option<ClusteredKnn<HallwayPixel, Uv, f64, fn (&Uv,&Uv)->f64, fn (&Vec<&Uv>) -> Uv>>> = Mutex::new(None);   
     static ref KMEANS_READY: AtomicBool = AtomicBool::new(false);
     static ref TRAINING_TIME: AtomicU64 = AtomicU64::new(0);
 }
@@ -147,11 +149,36 @@ pub fn start_hs_kmeans_training(img: ImageData) {
     });
 }
 
+pub fn start_uv_kmeans_training(img: ImageData) {
+    std::thread::spawn(move || {
+        let start = Instant::now();
+        let image = uv_values(&img);
+        let mut color_means = UV_MEANS.lock().unwrap();
+        *color_means = Some(Kmeans::new(NUM_COLOR_CLUSTERS, &image, Arc::new(uv_distance), Arc::new(uv_mean)));
+        let mut groundline_classifier = UV_GROUNDLINE_CLASSIFIER.lock().unwrap();
+        *groundline_classifier = Some(ClusteredKnn::new(NUM_KNN_REFS, NUM_COLOR_CLUSTERS, Arc::new(uv_distance), Arc::new(uv_mean)));
+        let overlay = GroundlineOverlay::new(&img);
+        let training_examples = overlay.make_color_training_from(&image, img.width);
+        groundline_classifier.as_mut().unwrap().train_from_clusters(color_means.as_ref().unwrap(), &training_examples);
+        KMEANS_READY.store(true, Ordering::SeqCst);
+        TRAINING_TIME.store(start.elapsed().as_millis() as u64, Ordering::SeqCst);
+    });
+}
+
+fn white_screen_of_doom(img: &ImageData) -> Vec<u8> {
+    (0..(img.height * img.width * 4)).map(|i| if i % 4 == 0 {u8::MAX} else {0}).collect()
+}
+
 fn hs_ground_colored(img: ImageData) -> Vec<u8> {
     let image = hs_values(&img);
-    HS_GROUNDLINE_CLASSIFIER.lock().unwrap().as_ref().map_or_else(|| {
-        (0..(img.height * img.width * 4)).map(|i| if i % 4 == 0 {u8::MAX} else {0}).collect()
-    }, |knn| groundline_pixels(&image, knn))
+    HS_GROUNDLINE_CLASSIFIER.lock().unwrap().as_ref().map_or_else(|| white_screen_of_doom(&img), 
+    |knn| groundline_pixels(&image, knn))
+}
+
+fn uv_ground_colored(img: ImageData) -> Vec<u8> {
+    let image = uv_values(&img);
+    UV_GROUNDLINE_CLASSIFIER.lock().unwrap().as_ref().map_or_else(|| white_screen_of_doom(&img), 
+    |knn| groundline_pixels(&image, knn))
 }
 
 pub fn color_clusterer(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
@@ -181,6 +208,14 @@ pub fn groundline_filter_k_means(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
 pub fn hs_groundline_filter_k_means(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
     if kmeans_ready() {
         ZeroCopyBuffer(hs_ground_colored(img))
+    } else {
+        groundline_sample_overlay(img)
+    }
+}
+
+pub fn uv_groundline_filter_k_means(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
+    if kmeans_ready() {
+        ZeroCopyBuffer(uv_ground_colored(img))
     } else {
         groundline_sample_overlay(img)
     }

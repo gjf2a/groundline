@@ -42,6 +42,11 @@ pub extern "C" fn wire_start_hs_kmeans_training(port_: i64, img: *mut wire_Image
 }
 
 #[no_mangle]
+pub extern "C" fn wire_start_uv_kmeans_training(port_: i64, img: *mut wire_ImageData) {
+    wire_start_uv_kmeans_training_impl(port_, img)
+}
+
+#[no_mangle]
 pub extern "C" fn wire_color_clusterer(port_: i64, img: *mut wire_ImageData) {
     wire_color_clusterer_impl(port_, img)
 }
@@ -59,6 +64,11 @@ pub extern "C" fn wire_groundline_filter_k_means(port_: i64, img: *mut wire_Imag
 #[no_mangle]
 pub extern "C" fn wire_hs_groundline_filter_k_means(port_: i64, img: *mut wire_ImageData) {
     wire_hs_groundline_filter_k_means_impl(port_, img)
+}
+
+#[no_mangle]
+pub extern "C" fn wire_uv_groundline_filter_k_means(port_: i64, img: *mut wire_ImageData) {
+    wire_uv_groundline_filter_k_means_impl(port_, img)
 }
 
 #[no_mangle]

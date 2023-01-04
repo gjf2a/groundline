@@ -111,23 +111,23 @@ class KMeansGroundlineTrainer extends CameraImagePainter {
   }
 }
 
-class KMeansHsGroundlineTrainer extends CameraImagePainter {
-  KMeansHsGroundlineTrainer() : super(makeHsGroundlineKmeansFilter);
+class KMeansUvGroundlineTrainer extends CameraImagePainter {
+  KMeansUvGroundlineTrainer() : super(makeUvGroundlineKmeansFilter);
   bool startTraining = false;
 
   @override
   Future<void> setImage(CameraImage img) async {
     super.setImage(img);
     if (startTraining) {
-      await api.startHsKmeansTraining(img: from(img));
+      await api.startUvKmeansTraining(img: from(img));
       startTraining = false;
       resetFps();
     }
   }
 }
 
-class KMeansHsImageRunner extends VisionRunner {
-  final KMeansHsGroundlineTrainer _livePicture = KMeansHsGroundlineTrainer();
+class KMeansUvImageRunner extends VisionRunner {
+  final KMeansUvGroundlineTrainer _livePicture = KMeansUvGroundlineTrainer();
 
   @override
   CameraImagePainter livePicture() {

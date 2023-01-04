@@ -128,6 +128,22 @@ fn wire_start_hs_kmeans_training_impl(
         },
     )
 }
+fn wire_start_uv_kmeans_training_impl(
+    port_: MessagePort,
+    img: impl Wire2Api<ImageData> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap(
+        WrapInfo {
+            debug_name: "start_uv_kmeans_training",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_img = img.wire2api();
+            move |task_callback| Ok(start_uv_kmeans_training(api_img))
+        },
+    )
+}
 fn wire_color_clusterer_impl(port_: MessagePort, img: impl Wire2Api<ImageData> + UnwindSafe) {
     FLUTTER_RUST_BRIDGE_HANDLER.wrap(
         WrapInfo {
@@ -186,6 +202,22 @@ fn wire_hs_groundline_filter_k_means_impl(
         move || {
             let api_img = img.wire2api();
             move |task_callback| Ok(hs_groundline_filter_k_means(api_img))
+        },
+    )
+}
+fn wire_uv_groundline_filter_k_means_impl(
+    port_: MessagePort,
+    img: impl Wire2Api<ImageData> + UnwindSafe,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap(
+        WrapInfo {
+            debug_name: "uv_groundline_filter_k_means",
+            port: Some(port_),
+            mode: FfiCallMode::Normal,
+        },
+        move || {
+            let api_img = img.wire2api();
+            move |task_callback| Ok(uv_groundline_filter_k_means(api_img))
         },
     )
 }

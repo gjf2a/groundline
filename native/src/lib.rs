@@ -9,4 +9,5 @@
 mod api;
 mod bridge_generated;
 mod groundline;
-mod image;
+mod image_proc;
+mod keypoints;

@@ -73,6 +73,11 @@ Future<dartui.Image> makeColorFrom(CameraImage img) async {
   return makeImageFrom(proc, img.width, img.height);
 }
 
+Future<dartui.Image> makeAkazeFrom(CameraImage img) async {
+  Uint8List proc = await api.akazeView(img: from(img));
+  return makeImageFrom(proc, img.width, img.height);
+}
+
 Future<dartui.Image> makeGroundlineSampleOverlay(CameraImage img) async {
   Uint8List proc = await api.groundlineSampleOverlay(img: from(img));
   return makeImageFrom(proc, img.width, img.height);

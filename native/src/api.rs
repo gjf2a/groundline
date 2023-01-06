@@ -1,6 +1,8 @@
 use std::{collections::BTreeSet, sync::atomic::{Ordering, AtomicBool, AtomicU64}, time::Instant};
+use cv::{feature::akaze::Akaze, image::image::DynamicImage};
 use flutter_rust_bridge::{ZeroCopyBuffer};
 use correlation_flow::micro_rfft::{COL_DIM, ROW_DIM, MicroFftContext};
+use image::Rgba;
 use knn::ClusteredKnn;
 use std::collections::HashMap;
 pub use particle_filter::sonar3bot::{RobotSensorPosition, BOT, MotorData};
@@ -8,7 +10,7 @@ use flutter_rust_bridge::support::lazy_static;
 use std::sync::{Arc,Mutex};
 use kmeans::Kmeans;
 
-use crate::{image::{U8ColorTriple, color_triple_distance, color_triple_mean, HueSaturation, hs_values, hs_distance, hs_mean, Uv, uv_values, uv_distance, uv_mean}, groundline::{GroundlineOverlay, HallwayPixel, groundline_pixels}, image::{inner_yuv_rgba, simple_yuv_rgb}};
+use crate::{image_proc::{U8ColorTriple, color_triple_distance, color_triple_mean, HueSaturation, hs_values, hs_distance, hs_mean, Uv, uv_values, uv_distance, uv_mean}, groundline::{GroundlineOverlay, HallwayPixel, groundline_pixels}, image_proc::{inner_yuv_rgba, simple_yuv_rgb}, keypoints};
 
 lazy_static! {
     static ref POS: Mutex<RobotSensorPosition> = Mutex::new(RobotSensorPosition::new(BOT));
@@ -219,6 +221,23 @@ pub fn uv_groundline_filter_k_means(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
     } else {
         groundline_sample_overlay(img)
     }
+}
+
+pub fn akaze_view(img: ImageData) -> ZeroCopyBuffer<Vec<u8>> {
+    let rgba = keypoints::convert(&img);
+    let wrapped = DynamicImage::ImageRgba8(rgba);
+    let akaze = Akaze::dense();
+    let (keypoints, _) = akaze.extract(&wrapped);
+    if let DynamicImage::ImageRgba8(mut unwrapped) = wrapped {
+        for kp in keypoints {
+            let (x, y) = kp.point;
+            unwrapped.put_pixel(x as u32, y as u32, Rgba([255, 0, 0, 255]));
+        }
+        ZeroCopyBuffer(unwrapped.into_vec())
+    } else {
+        panic!("This shouldn't happen");
+    }
+    
 }
 
 #[derive(Copy, Clone)]

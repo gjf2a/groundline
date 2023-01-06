@@ -41,6 +41,43 @@ class SimpleImageRunner extends VisionRunner {
   }
 }
 
+class AkazeImageRunner extends VisionRunner {
+  final CameraImagePainter _livePicture = CameraImagePainter(makeAkazeFrom);
+
+  @override
+  Widget display(SelectorPageState selector) {
+    return MaterialApp(
+        home: Scaffold(
+            appBar: AppBar(
+                title: const Text("This is a title")),
+            body: Center(
+                child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      CustomPaint(painter: _livePicture),
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: <Widget>[
+                          selector.startStopButton(),
+                          Text(selector.ipAddr),
+                          Text("Grabbed: ${_livePicture.frameCount()} (${_livePicture.width()} x ${_livePicture.height()}) FPS: ${_livePicture.fps().toStringAsFixed(2)}"),
+                          Text(selector.incoming),
+                          //selector.returnToStartButton(),
+                        ],
+                      ),
+                    ]
+                )
+            )
+        )
+    );
+  }
+
+  @override
+  CameraImagePainter livePicture() {
+    return _livePicture;
+  }
+}
+
 class KMeansImageRunner extends VisionRunner {
   final KMeansGroundlineTrainer _livePicture = KMeansGroundlineTrainer();
 
